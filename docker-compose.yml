@@ -1,0 +1,50 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: blaine-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    networks:
+      - blaine-net
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blaine-bot
+    restart: always
+    command: python3 -m src.main bot
+    env_file:
+      - .env
+    volumes:
+      - ${BLAINE_DATA_DIR:-/var/blaine}:/var/blaine
+      - ${RCLONE_CONFIG_DIR:-~/.config/rclone}:/home/blaine/.config/rclone:ro
+    depends_on:
+      - redis
+    networks:
+      - blaine-net
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blaine-worker
+    restart: always
+    command: python3 -m src.main worker
+    env_file:
+      - .env
+    volumes:
+      - ${BLAINE_DATA_DIR:-/var/blaine}:/var/blaine
+      - ${RCLONE_CONFIG_DIR:-~/.config/rclone}:/home/blaine/.config/rclone:ro
+    depends_on:
+      - redis
+    networks:
+      - blaine-net
+
+volumes:
+  redis_data:
+
+networks:
+  blaine-net:
+    driver: bridge
