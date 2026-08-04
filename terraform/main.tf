@@ -16,8 +16,9 @@ resource "digitalocean_ssh_key" "server_ssh_key" {
   public_key = tls_private_key.server_ssh_key.public_key_openssh
 }
 
-# 2. Dedicated Deploy Key Pair for GitHub Repository Access
+# 2. Optional Dedicated Deploy Key Pair for Private GitHub Repository Access
 resource "tls_private_key" "github_deploy_key" {
+  count     = var.enable_github_deploy_key ? 1 : 0
   algorithm = "ED25519"
 }
 
@@ -30,11 +31,11 @@ resource "digitalocean_ssh_key" "user_ssh_key" {
 
 # DigitalOcean Droplet Resource
 resource "digitalocean_droplet" "blaine_server" {
-  image      = "ubuntu-24-04-x64"
-  name       = var.droplet_name
-  region     = var.region
-  size       = var.droplet_size
-  ssh_keys   = compact([
+  image  = "ubuntu-24-04-x64"
+  name   = var.droplet_name
+  region = var.region
+  size   = var.droplet_size
+  ssh_keys = compact([
     digitalocean_ssh_key.server_ssh_key.id,
     try(digitalocean_ssh_key.user_ssh_key[0].id, "")
   ])
@@ -42,8 +43,8 @@ resource "digitalocean_droplet" "blaine_server" {
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
     server_public_key         = tls_private_key.server_ssh_key.public_key_openssh
-    github_deploy_private_key = tls_private_key.github_deploy_key.private_key_openssh
-    github_deploy_public_key  = tls_private_key.github_deploy_key.public_key_openssh
+    github_deploy_private_key = try(tls_private_key.github_deploy_key[0].private_key_openssh, "")
+    github_deploy_public_key  = try(tls_private_key.github_deploy_key[0].public_key_openssh, "")
     git_repo_url              = var.git_repo_url
     telegram_bot_token        = var.telegram_bot_token
     gemini_api_key            = var.gemini_api_key

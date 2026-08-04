@@ -9,8 +9,8 @@ output "droplet_status" {
 }
 
 output "github_deploy_key" {
-  description = "Public SSH key to paste into GitHub -> Settings -> Deploy keys"
-  value       = tls_private_key.github_deploy_key.public_key_openssh
+  description = "Public SSH key to paste into GitHub -> Settings -> Deploy keys (only if enable_github_deploy_key = true)"
+  value       = try(tls_private_key.github_deploy_key[0].public_key_openssh, "Disabled (using HTTPS clone URL)")
 }
 
 output "ssh_blaine_command" {

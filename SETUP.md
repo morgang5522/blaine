@@ -20,8 +20,8 @@ Before starting, gather the following credentials:
    - Log into your DigitalOcean dashboard.
    - Go to **API** $\rightarrow$ **Tokens/Keys** $\rightarrow$ **Generate New Token** (Read & Write).
 
-4. **GitHub Private Repository Access**:
-   - URL for your private repository (e.g., `git@github.com:your_username/blaine.git`).
+4. **GitHub Repository URL**:
+   - HTTPS URL for your repository (e.g., `https://github.com/your_username/blaine.git`).
 
 ---
 
@@ -68,7 +68,7 @@ Open Telegram, search for your bot username, and type `/start`!
 
 ## ☁️ Option B: 1-Click Automated Terraform Deployment (DigitalOcean)
 
-Terraform fully provisions the 2 vCPU / 4GB RAM Droplet, generates a secure SSH key pair, sets up a non-root system user (`blaine`), clones your private GitHub repository over SSH, configures `.env`, builds Docker containers, and launches the entire stack automatically on boot.
+Terraform fully provisions the 2 vCPU / 4GB RAM Droplet, generates a secure SSH key pair, sets up a non-root system user (`blaine`), clones your repository over HTTPS, configures `.env`, builds Docker containers, and launches the entire stack automatically on boot.
 
 ### Step 1: Configure Terraform Variables
 
@@ -82,9 +82,12 @@ cp terraform.tfvars.example terraform.tfvars
 Edit `terraform.tfvars`:
 ```hcl
 do_token           = "dop_v1_your_digitalocean_token_here"
-git_repo_url       = "git@github.com:your_username/blaine.git"
+git_repo_url       = "https://github.com/your_username/blaine.git"
 telegram_bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 gemini_api_key     = "AIzaSyYourGeminiApiKeyHere"
+
+# Optional: Set to true if cloning a private fork over SSH (git@github.com:username/blaine.git)
+# enable_github_deploy_key = true
 
 # Optional: Add your personal public SSH key (cat ~/.ssh/id_ed25519.pub) for direct access
 # user_public_ssh_key = "ssh-ed25519 AAAAC3N..."
@@ -109,19 +112,11 @@ When `terraform apply` completes, Terraform outputs your server details and auto
 ```
 Outputs:
 droplet_ip        = "206.189.XX.XX"
-github_deploy_key = "ssh-ed25519 AAAAC3N..."
 ssh_command       = "ssh -i id_ed25519 blaine@206.189.XX.XX"
 redeploy_command  = "ssh -i id_ed25519 blaine@206.189.XX.XX '/opt/blaine/redeploy.sh'"
 ```
 
-### Step 3: Add Deploy Key to GitHub
-
-Copy the printed `github_deploy_key` output:
-1. Go to **GitHub** $\rightarrow$ Your Repository (`blaine`) $\rightarrow$ **Settings** $\rightarrow$ **Deploy keys**.
-2. Click **Add deploy key**.
-3. Title it `Blaine Server Deploy Key`, paste the key, and click **Add key**.
-
-Within ~45–60 seconds of Droplet boot, the background setup script completes cloning, building, and starting Docker Compose!
+Within ~45–60 seconds of Droplet boot, the background setup script completes cloning, building, and starting Docker Compose automatically!
 
 ---
 

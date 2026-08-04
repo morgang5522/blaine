@@ -11,9 +11,15 @@ variable "user_public_ssh_key" {
 }
 
 variable "git_repo_url" {
-  description = "Git clone SSH URL (e.g. git@github.com:username/blaine.git)"
+  description = "Git clone HTTPS or SSH URL (e.g. https://github.com/your_username/blaine.git)"
   type        = string
-  default     = "git@github.com:your_username/blaine.git"
+  default     = "https://github.com/your_username/blaine.git"
+}
+
+variable "enable_github_deploy_key" {
+  description = "Set to true to generate a dedicated SSH deploy key pair for private GitHub repository access"
+  type        = bool
+  default     = false
 }
 
 variable "telegram_bot_token" {
