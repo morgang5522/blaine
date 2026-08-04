@@ -104,8 +104,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         formatted_reply = format_telegram_html(reply_text)
         await update.message.reply_text(formatted_reply, parse_mode="HTML")
 
-    facts_saved_count = 0
-
     # Dispatch extracted tool calls
     for call in tool_calls:
         tool_name = call.get("name")
@@ -133,42 +131,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📥 Archiving media... Job <code>{job_id}</code> queued.",
                 parse_mode="HTML"
             )
-        elif tool_name == "remember_user_fact":
-            res = await tool_registry.execute_tool(tool_name, args)
-            logger.info(f"Executed tool '{tool_name}': {res}")
-            if res.get("is_new", False):
-                facts_saved_count += 1
-        elif tool_name in ["web_search", "get_weather", "get_system_diagnostics", "list_memories"]:
-            # These tools are executed by ai_engine for 2nd turn synthesis; only run fallback if reply_text is empty
+        else:
+            # Synchronous tools are executed inline by ai_engine for 2nd-turn synthesis.
+            # If reply_text was empty (e.g. engine running in fallback rule mode), run tool directly.
             if not reply_text:
                 res = await tool_registry.execute_tool(tool_name, args)
-                summary = res.get("summary") or res.get("message", "")
-                if summary:
-                    await update.message.reply_text(format_telegram_html(summary), parse_mode="HTML")
-        else:
-            res = await tool_registry.execute_tool(tool_name, args)
-            logger.info(f"Executed tool '{tool_name}': {res}")
-            
-            if tool_name in ["forget_memory", "update_memory", "clear_all_memories", "clear_chat_history"]:
-                if not reply_text:
-                    msg = res.get("message", "Memory updated.")
-                    await update.message.reply_text(f"🧠 {format_telegram_html(msg)}", parse_mode="HTML")
-            elif tool_name in ["schedule_reminder", "cancel_reminder", "amend_reminder", "list_reminders"]:
-                if not res.get("is_duplicate", False):
-                    msg = res.get("message", "Reminder updated.")
-                    await update.message.reply_text(f"⏰ {format_telegram_html(msg)}", parse_mode="HTML")
-
-            elif tool_name == "manage_list":
-                msg = res.get("message", "List updated.")
-                await update.message.reply_text(format_telegram_html(msg), parse_mode="HTML")
-            elif tool_name == "cloud_sync":
-                msg = res.get("message", "Cloud sync queued.")
-                await update.message.reply_text(format_telegram_html(msg), parse_mode="HTML")
-
-    # Send a single aggregated confirmation if facts were saved and no prior conversational text was generated
-    if facts_saved_count > 0 and (not reply_text or not reply_text.strip()):
-        confirm_msg = "Got it! I've noted that down for you." if facts_saved_count == 1 else f"Got it! I've noted those {facts_saved_count} facts down for you."
-        await update.message.reply_text(confirm_msg)
+                msg = res.get("message") or res.get("summary", "")
+                if msg:
+                    await update.message.reply_text(format_telegram_html(msg), parse_mode="HTML")
 
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
