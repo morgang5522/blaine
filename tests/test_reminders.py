@@ -144,7 +144,7 @@ class TestReminderFeature(unittest.TestCase):
 
     def test_target_time_iso_scheduling(self):
         async def run_test():
-            target_iso = "2026-08-05 09:00:00"
+            target_iso = "2028-08-05 09:00:00"
             res = await self.schedule_tool.execute(
                 user_id=self.user_id,
                 chat_id=self.chat_id,
@@ -157,7 +157,34 @@ class TestReminderFeature(unittest.TestCase):
             res_list = await self.list_tool.execute(user_id=self.user_id)
             self.assertEqual(len(res_list["reminders"]), 1)
             self.assertEqual(res_list["reminders"][0]["reminder_text"], "Buy coffee tomorrow")
-            self.assertEqual(res_list["reminders"][0]["trigger_at"], "2026-08-05 09:00:00")
+            self.assertEqual(res_list["reminders"][0]["trigger_at"], "2028-08-05 09:00:00")
+
+        asyncio.run(run_test())
+
+    def test_user_timezone_parsing_and_reminder_display(self):
+        async def run_test():
+            # Store timezone preference fact
+            self.memory.store_fact(self.user_id, "timezone", "America/New_York")
+            tz_res = self.memory.get_user_timezone(self.user_id)
+            self.assertIsNotNone(tz_res)
+            self.assertEqual(tz_res[1], "America/New_York")
+
+            # Schedule a reminder with absolute UTC time
+            target_iso = "2028-08-05 14:00:00"
+            res = await self.schedule_tool.execute(
+                user_id=self.user_id,
+                chat_id=self.chat_id,
+                reminder_text="Team Sync",
+                target_time_iso=target_iso
+            )
+            self.assertEqual(res["status"], "SUCCESS")
+            # In America/New_York (EDT UTC-4), 14:00 UTC is 10:00
+            self.assertIn("10:00 America/New_York", res["message"])
+
+            # Verify list reminders shows local time display
+            res_list = await self.list_tool.execute(user_id=self.user_id)
+            self.assertEqual(len(res_list["reminders"]), 1)
+            self.assertIn("10:00 America/New_York", res_list["message"])
 
         asyncio.run(run_test())
 

@@ -2,10 +2,67 @@ import os
 import json
 import sqlite3
 import logging
+import datetime
+import re
 from typing import Dict, List, Any, Optional
+try:
+    import zoneinfo
+except ImportError:
+    from backports import zoneinfo  #  type: ignore
+
 from src.config import settings
 
 logger = logging.getLogger("blaine.memory")
+
+COMMON_TZ_ABBR = {
+    "UTC": datetime.timezone.utc,
+    "GMT": datetime.timezone.utc,
+    "EST": datetime.timezone(datetime.timedelta(hours=-5)),
+    "EDT": datetime.timezone(datetime.timedelta(hours=-4)),
+    "CST": datetime.timezone(datetime.timedelta(hours=-6)),
+    "CDT": datetime.timezone(datetime.timedelta(hours=-5)),
+    "MST": datetime.timezone(datetime.timedelta(hours=-7)),
+    "MDT": datetime.timezone(datetime.timedelta(hours=-6)),
+    "PST": datetime.timezone(datetime.timedelta(hours=-8)),
+    "PDT": datetime.timezone(datetime.timedelta(hours=-7)),
+    "BST": datetime.timezone(datetime.timedelta(hours=1)),
+    "CET": datetime.timezone(datetime.timedelta(hours=1)),
+    "CEST": datetime.timezone(datetime.timedelta(hours=2)),
+    "JST": datetime.timezone(datetime.timedelta(hours=9)),
+    "AEST": datetime.timezone(datetime.timedelta(hours=10)),
+    "AEDT": datetime.timezone(datetime.timedelta(hours=11)),
+}
+
+def parse_timezone_str(tz_str: str) -> Optional[tuple[datetime.tzinfo, str]]:
+    if not tz_str:
+        return None
+    clean = tz_str.strip()
+    
+    # 1. Direct ZoneInfo check (IANA names like America/New_York)
+    try:
+        tz = zoneinfo.ZoneInfo(clean)
+        return tz, clean
+    except Exception:
+        pass
+
+    # 2. Check uppercase abbreviation
+    upper_clean = clean.upper()
+    if upper_clean in COMMON_TZ_ABBR:
+        return COMMON_TZ_ABBR[upper_clean], upper_clean
+
+    # 3. Numeric UTC offset (e.g. UTC-5, GMT+2, -05:00, +01:00)
+    match = re.match(r'^(?:UTC|GMT)?\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?$', upper_clean)
+    if match:
+        sign = -1 if match.group(1) == '-' else 1
+        hours = int(match.group(2))
+        minutes = int(match.group(3)) if match.group(3) else 0
+        offset = datetime.timedelta(hours=sign * hours, minutes=sign * minutes)
+        tz_obj = datetime.timezone(offset)
+        disp_name = f"UTC{match.group(1)}{hours:02d}:{minutes:02d}"
+        return tz_obj, disp_name
+
+    return None
+
 
 class SQLiteMemoryManager:
     """
@@ -413,6 +470,41 @@ class SQLiteMemoryManager:
             cursor = conn.execute("DELETE FROM user_facts WHERE user_id = ?", (user_id,))
             conn.commit()
             return cursor.rowcount
+
+    def get_user_timezone(self, user_id: int) -> Optional[tuple[datetime.tzinfo, str]]:
+        """
+        Searches user's saved facts for timezone preferences.
+        Returns a tuple of (datetime.tzinfo, display_name) or None if not set.
+        """
+        facts = self.get_user_facts(user_id)
+        if not facts:
+            return None
+
+        # Look for facts with key or value referencing timezone/tz/time zone
+        tz_facts = [
+            f for f in facts
+            if any(k in f["fact_key"].lower() or k in f["fact_value"].lower() for k in ["timezone", "time zone", "tz"])
+        ]
+
+        search_list = tz_facts if tz_facts else facts
+
+        for fact in search_list:
+            val = fact["fact_value"]
+            res = parse_timezone_str(val)
+            if res:
+                return res
+
+            # Try tokenizing if value contains extra words (e.g. "User's timezone is EST")
+            tokens = re.split(r'[\s,;:="]+', val)
+            for token in tokens:
+                token_clean = token.strip()
+                if token_clean.lower() in ("timezone", "time", "zone", "tz", "is", "user's", "my", "the", "fact"):
+                    continue
+                res = parse_timezone_str(token_clean)
+                if res:
+                    return res
+
+        return None
 
     def get_user_facts_summary(self, user_id: int) -> str:
         """Retrieves formatted summary of stored facts & style preferences for system prompt context."""

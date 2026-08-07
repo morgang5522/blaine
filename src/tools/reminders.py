@@ -30,7 +30,7 @@ class ScheduleReminderTool(BaseTool):
                 },
                 "target_time_iso": {
                     "type": "string",
-                    "description": "Target trigger UTC date & time formatted as 'YYYY-MM-DD HH:MM:SS' (e.g. '2026-08-05 09:00:00'). Use this for specific absolute target times like '9am tomorrow', 'Friday at 2pm', etc."
+                    "description": "Target trigger UTC date & time formatted as 'YYYY-MM-DD HH:MM:SS' (e.g. '2026-08-05 09:00:00'). Convert any local user time to UTC before setting."
                 },
                 "duration_minutes": {
                     "type": "number",
@@ -89,7 +89,15 @@ class ScheduleReminderTool(BaseTool):
 
         logger.info(f"Scheduled reminder [{reminder_id}] for user {user_id} at UTC {trigger_iso}: '{reminder_text}'")
 
+        user_tz_res = memory_manager.get_user_timezone(user_id)
         display_time = trigger_utc.strftime('%Y-%m-%d %H:%M UTC')
+        if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
+            try:
+                dt_local = trigger_utc.astimezone(user_tz_res[0])
+                display_time += f" ({dt_local.strftime('%H:%M')} {user_tz_res[1]})"
+            except Exception:
+                pass
+
         return {
             "status": "SUCCESS",
             "message": f"Reminder scheduled for {display_time} (in {duration_mins} min): '{reminder_text}'",
@@ -194,8 +202,18 @@ class ListRemindersTool(BaseTool):
             }
 
         lines = ["<b>Your active reminders:</b>"]
+        user_tz_res = memory_manager.get_user_timezone(user_id)
         for r in reminders:
-            lines.append(f"• <b>[{r['id']}]</b> {r['reminder_text']} (due at {r['trigger_at']} UTC)")
+            due_str = f"{r['trigger_at']} UTC"
+            if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
+                try:
+                    dt_naive = datetime.datetime.fromisoformat(r['trigger_at'])
+                    dt_utc = dt_naive.replace(tzinfo=datetime.timezone.utc)
+                    dt_local = dt_utc.astimezone(user_tz_res[0])
+                    due_str += f" ({dt_local.strftime('%H:%M')} {user_tz_res[1]})"
+                except Exception:
+                    pass
+            lines.append(f"• <b>[{r['id']}]</b> {r['reminder_text']} (due at {due_str})")
 
         return {
             "status": "SUCCESS",
@@ -236,7 +254,7 @@ class AmendReminderTool(BaseTool):
                 },
                 "new_target_time_iso": {
                     "type": "string",
-                    "description": "Optional new target trigger UTC date & time formatted as 'YYYY-MM-DD HH:MM:SS'."
+                    "description": "Optional new target trigger UTC date & time formatted as 'YYYY-MM-DD HH:MM:SS'. Convert any local user time to UTC before setting."
                 },
                 "new_duration_minutes": {
                     "type": "number",
@@ -263,6 +281,7 @@ class AmendReminderTool(BaseTool):
         new_trigger_iso = None
         display_time = ""
         now_utc = datetime.datetime.now(datetime.timezone.utc)
+        trigger_utc = None
 
         if new_target_time_iso:
             try:
@@ -281,6 +300,14 @@ class AmendReminderTool(BaseTool):
             trigger_utc = now_utc + datetime.timedelta(minutes=duration)
             new_trigger_iso = trigger_utc.strftime("%Y-%m-%d %H:%M:%S")
             display_time = trigger_utc.strftime('%Y-%m-%d %H:%M UTC')
+
+        user_tz_res = memory_manager.get_user_timezone(user_id)
+        if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2 and trigger_utc:
+            try:
+                dt_local = trigger_utc.astimezone(user_tz_res[0])
+                display_time += f" ({dt_local.strftime('%H:%M')} {user_tz_res[1]})"
+            except Exception:
+                pass
 
         updated = memory_manager.amend_reminder(
             user_id=user_id,

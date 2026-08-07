@@ -17,7 +17,7 @@ Behavior & Tone:
 Instructions:
 - Maintain full context across turns. Resolve pronouns and implicit references using preceding conversation history.
 - Contextual Queries: When executing search tools, construct explicit queries integrating subjects from prior turns.
-- Time Context: Use the Current System Date & Time context to accurately compute target UTC timestamps ('YYYY-MM-DD HH:MM:SS') for scheduled reminders.
+- Time Context & Reminders: Use the Current System Date & Time and User's Local Time context. Reminders must ALWAYS be stored in UTC ('YYYY-MM-DD HH:MM:SS'). However, interpret user relative or local time expressions (e.g. '9am tomorrow', 'at 15:00', 'tonight at 8') using the User's Local Timezone if specified, converting them into target UTC timestamps before calling schedule_reminder or amend_reminder tools.
 - Tool Usage: Only invoke tools for actions requested in the user's latest message turn. Synthesize tool execution results into natural, warm conversational text."""
 
 
@@ -84,12 +84,32 @@ class BlaineAIEngine:
             time_str = now_utc.strftime("%A, %Y-%m-%d %H:%M:%S UTC")
             system_instruction += f"\n\nCurrent System Date & Time:\n- Current UTC Time: {time_str}"
 
+            user_tz_res = memory_manager.get_user_timezone(user_id)
+            if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
+                user_tz_obj, user_tz_name = user_tz_res
+                now_local = now_utc.astimezone(user_tz_obj)
+                local_time_str = now_local.strftime("%A, %Y-%m-%d %H:%M:%S")
+                system_instruction += f"\n- User's Local Time: {local_time_str} ({user_tz_name})"
+            else:
+                system_instruction += "\n- User's Local Timezone: Not set in memory (Defaulting to UTC)."
+
             if memory_summary and memory_summary != "No prior saved preferences.":
                 system_instruction += f"\n\nUser Profile & Memory Context (CRITICAL: Dynamically adapt your speaking tone, persona, vocabulary, conciseness, and greeting to honor these saved facts and preferences):\n{memory_summary}"
 
             active_reminders = memory_manager.get_active_reminders(user_id)
             if active_reminders:
-                rem_lines = [f"- [ID {r['id']}] '{r['reminder_text']}' due at {r['trigger_at']} UTC" for r in active_reminders]
+                rem_lines = []
+                for r in active_reminders:
+                    line = f"- [ID {r['id']}] '{r['reminder_text']}' due at {r['trigger_at']} UTC"
+                    if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
+                        try:
+                            dt_naive = datetime.datetime.fromisoformat(r['trigger_at'])
+                            dt_utc = dt_naive.replace(tzinfo=datetime.timezone.utc)
+                            dt_local = dt_utc.astimezone(user_tz_res[0])
+                            line += f" ({dt_local.strftime('%Y-%m-%d %H:%M')} {user_tz_res[1]})"
+                        except Exception:
+                            pass
+                    rem_lines.append(line)
                 system_instruction += "\n\nActive Pending Reminders for User:\n" + "\n".join(rem_lines)
 
             # Format tool declarations for Gemini Function Calling
