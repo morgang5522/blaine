@@ -245,9 +245,10 @@ class TestAIEngineContext(unittest.TestCase):
                 await engine._process_with_gemini("You're in dev mode by the way", 123, [{"role": "user", "content": "You're in dev mode by the way"}], "")
                 call_kwargs = mock_client.models.generate_content.call_args.kwargs
                 sys_inst = call_kwargs["config"].system_instruction
-                self.assertIn("Automatic Memory Management", sys_inst)
+                self.assertIn("Selective Long-Term Memory", sys_inst)
                 self.assertIn("remember_user_fact", sys_inst)
                 self.assertIn("dev mode", sys_inst)
+
 
         asyncio.run(run_test())
 

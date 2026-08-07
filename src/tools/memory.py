@@ -12,7 +12,8 @@ class RememberUserFactTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Stores a SINGLE, individual user preference, habit, name, favorite thing, operational setting/mode (e.g. 'User has enabled dev mode'), or personal fact into Blaine's long-term memory. Automatically call this tool when processing messages that contain long-term facts or settings. Always call this tool separately for each distinct fact."
+        return "Stores a SINGLE durable user preference, habit, identity detail, operational mode (e.g. 'User enabled dev mode'), or long-term fact into Blaine's persistent memory. Only call for facts with high long-term value, NOT transient chatter or one-off tasks. Always call separately for each distinct fact."
+
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
