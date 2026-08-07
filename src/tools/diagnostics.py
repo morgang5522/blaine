@@ -78,9 +78,16 @@ class DiagnosticsTool(BaseTool):
                 except Exception:
                     pass
 
+    def _get_db_path(self) -> str:
+        if hasattr(memory_manager, "db_path"):
+            return memory_manager.db_path
+        elif hasattr(memory_manager, "_context") and hasattr(memory_manager._context, "db"):
+            return memory_manager._context.db.db_path
+        return ""
+
     def _get_db_info(self) -> Dict[str, Any]:
-        db_path = memory_manager.db_path
-        exists = os.path.exists(db_path)
+        db_path = self._get_db_path()
+        exists = os.path.exists(db_path) if db_path else False
         size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2) if exists else 0
 
         counts = {"messages": 0, "facts": 0, "reminders": 0, "lists": 0}
@@ -126,7 +133,9 @@ class DiagnosticsTool(BaseTool):
         load_avg = [round(x, 2) for x in os.getloadavg()] if hasattr(os, "getloadavg") else [0.0, 0.0, 0.0]
 
         # Disk usage for data storage
-        target_dir = os.path.dirname(memory_manager.db_path)
+        db_path = self._get_db_path()
+        target_dir = os.path.dirname(db_path) if db_path else "/"
+
         disk_total_gb = disk_used_gb = disk_free_gb = disk_percent = 0.0
         try:
             usage = shutil.disk_usage(target_dir)
