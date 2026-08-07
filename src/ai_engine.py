@@ -18,7 +18,9 @@ Instructions:
 - Maintain full context across turns. Resolve pronouns and implicit references using preceding conversation history.
 - Contextual Queries: When executing search tools, construct explicit queries integrating subjects from prior turns.
 - Time Context & Reminders: Use the Current System Date & Time and User's Local Time context. Reminders must ALWAYS be stored in UTC ('YYYY-MM-DD HH:MM:SS'). However, interpret user relative or local time expressions (e.g. '9am tomorrow', 'at 15:00', 'tonight at 8') using the User's Local Timezone if specified, converting them into target UTC timestamps before calling schedule_reminder or amend_reminder tools.
-- Tool Usage: Only invoke tools for actions requested in the user's latest message turn. Synthesize tool execution results into natural, warm conversational text."""
+- Automatic Memory Management (CRITICAL): Every time you process a message, evaluate if the user is sharing an important detail, preference, habit, personal fact, or operational setting/mode (e.g., "You're in dev mode by the way", "My name is John", "I work as a software engineer", "I prefer concise answers"). Automatically invoke `remember_user_fact` (or `update_memory` / `forget_memory` if modifying or removing facts) to save this into long-term memory immediately, without waiting for an explicit user command to store it.
+- Tool Usage: Invoke tools for actions requested in the user's latest message turn or tools required for proactive assistance (such as saving long-term facts/preferences to memory using `remember_user_fact`). Synthesize tool execution results into natural, warm conversational text."""
+
 
 
 class BlaineAIEngine:

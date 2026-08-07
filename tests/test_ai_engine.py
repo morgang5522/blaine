@@ -200,5 +200,57 @@ class TestAIEngineContext(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    @patch("src.ai_engine.memory_manager")
+    def test_ai_engine_automatic_memory_prompt_instructions(self, mock_mem):
+        mock_mem.get_user_timezone.return_value = None
+        mock_mem.get_user_facts_summary.return_value = "No prior saved preferences."
+        mock_mem.get_active_reminders.return_value = []
+        mock_mem.get_chat_history.return_value = [{"role": "user", "content": "You're in dev mode by the way"}]
+
+        engine = BlaineAIEngine()
+        mock_client = MagicMock()
+        engine.client = mock_client
+
+        mock_response = MagicMock()
+        mock_response.function_calls = None
+        mock_response.text = "Got it! I've noted that I'm in dev mode."
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_module = MagicMock()
+        mock_types = MagicMock()
+        mock_genai_module.types = mock_types
+
+        class DummyContent:
+            def __init__(self, role, parts):
+                self.role = role
+                self.parts = parts
+
+        class DummyPart:
+            @staticmethod
+            def from_text(text):
+                p = MagicMock()
+                p.text = text
+                return p
+
+        class DummyConfig:
+            def __init__(self, system_instruction=None, **kwargs):
+                self.system_instruction = system_instruction
+
+        mock_types.Content = DummyContent
+        mock_types.Part = DummyPart
+        mock_types.GenerateContentConfig = DummyConfig
+
+        async def run_test():
+            with patch.dict("sys.modules", {"google": MagicMock(), "google.genai": mock_genai_module, "google.genai.types": mock_types}):
+                await engine._process_with_gemini("You're in dev mode by the way", 123, [{"role": "user", "content": "You're in dev mode by the way"}], "")
+                call_kwargs = mock_client.models.generate_content.call_args.kwargs
+                sys_inst = call_kwargs["config"].system_instruction
+                self.assertIn("Automatic Memory Management", sys_inst)
+                self.assertIn("remember_user_fact", sys_inst)
+                self.assertIn("dev mode", sys_inst)
+
+        asyncio.run(run_test())
+
 if __name__ == "__main__":
     unittest.main()
+

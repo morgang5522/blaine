@@ -12,6 +12,11 @@ class SQLiteMemoryManagerFacade:
     def __init__(self, db_path: Optional[str] = None):
         self._context = AppDbContext(db_path)
 
+    @property
+    def db_path(self) -> str:
+        return self._context.db.db_path
+
+
     def add_reminder(self, user_id: int, chat_id: int, reminder_text: str, trigger_at_iso: str) -> Optional[int]:
         return self._context.reminders.add(user_id, chat_id, reminder_text, trigger_at_iso)
 
@@ -104,7 +109,9 @@ class SQLiteMemoryManagerFacade:
 
 # Singleton Facade Instance (preserves backwards compatibility)
 memory_manager = SQLiteMemoryManagerFacade()
+SQLiteMemoryManager = SQLiteMemoryManagerFacade
 
 # Keep timezone imports around just in case someone imported them from here
 COMMON_TZ_ABBR = COMMON_TZ_ABBR
 parse_timezone_str = parse_timezone_str
+
