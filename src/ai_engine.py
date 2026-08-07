@@ -79,38 +79,7 @@ class BlaineAIEngine:
         try:
             from google.genai import types
 
-            system_instruction = BLAINE_SYSTEM_PROMPT
-            now_utc = datetime.datetime.now(datetime.timezone.utc)
-            time_str = now_utc.strftime("%A, %Y-%m-%d %H:%M:%S UTC")
-            system_instruction += f"\n\nCurrent System Date & Time:\n- Current UTC Time: {time_str}"
-
-            user_tz_res = memory_manager.get_user_timezone(user_id)
-            if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
-                user_tz_obj, user_tz_name = user_tz_res
-                now_local = now_utc.astimezone(user_tz_obj)
-                local_time_str = now_local.strftime("%A, %Y-%m-%d %H:%M:%S")
-                system_instruction += f"\n- User's Local Time: {local_time_str} ({user_tz_name})"
-            else:
-                system_instruction += "\n- User's Local Timezone: Not set in memory (Defaulting to UTC)."
-
-            if memory_summary and memory_summary != "No prior saved preferences.":
-                system_instruction += f"\n\nUser Profile & Memory Context (CRITICAL: Dynamically adapt your speaking tone, persona, vocabulary, conciseness, and greeting to honor these saved facts and preferences):\n{memory_summary}"
-
-            active_reminders = memory_manager.get_active_reminders(user_id)
-            if active_reminders:
-                rem_lines = []
-                for r in active_reminders:
-                    line = f"- [ID {r['id']}] '{r['reminder_text']}' due at {r['trigger_at']} UTC"
-                    if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
-                        try:
-                            dt_naive = datetime.datetime.fromisoformat(r['trigger_at'])
-                            dt_utc = dt_naive.replace(tzinfo=datetime.timezone.utc)
-                            dt_local = dt_utc.astimezone(user_tz_res[0])
-                            line += f" ({dt_local.strftime('%Y-%m-%d %H:%M')} {user_tz_res[1]})"
-                        except Exception:
-                            pass
-                    rem_lines.append(line)
-                system_instruction += "\n\nActive Pending Reminders for User:\n" + "\n".join(rem_lines)
+            system_instruction = self._build_system_prompt(user_id, memory_summary)
 
             # Format tool declarations for Gemini Function Calling
             tools_list = [
@@ -128,37 +97,7 @@ class BlaineAIEngine:
                 tools=tools_list
             )
 
-            max_msgs = max(1, settings.MAX_CHAT_HISTORY_TURNS * 2)
-            # Exclude current user_message (last element of chat_history) to format prior history as structured turns
-            past_history = chat_history[:-1][-max_msgs:] if len(chat_history) > 1 else []
-
-            contents: List[types.Content] = []
-
-            if past_history:
-                for msg in past_history:
-                    role = "user" if msg["role"] == "user" else "model"
-                    if contents and contents[-1].role == role:
-                        contents[-1].parts.append(types.Part.from_text(text=msg["content"]))
-                    else:
-                        contents.append(
-                            types.Content(
-                                role=role,
-                                parts=[types.Part.from_text(text=msg["content"])]
-                            )
-                        )
-
-                if contents and contents[0].role == "model":
-                    contents.pop(0)
-
-            if contents and contents[-1].role == "user":
-                contents[-1].parts.append(types.Part.from_text(text=user_message))
-            else:
-                contents.append(
-                    types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(text=user_message)]
-                    )
-                )
+            contents = self._collate_history(user_message, chat_history)
 
             response = self.client.models.generate_content(
                 model=self.model_name,
@@ -166,83 +105,168 @@ class BlaineAIEngine:
                 config=config
             )
 
-            tool_calls = []
-            reply_text = ""
-
-            if hasattr(response, 'function_calls') and response.function_calls:
-                function_response_parts = []
-                for call in response.function_calls:
-                    args = dict(call.args) if hasattr(call, 'args') and call.args else {}
-                    args["user_id"] = user_id
-                    tool_calls.append({
-                        "name": call.name,
-                        "arguments": args
-                    })
-
-                    # Execute synchronous tools inline for Gemini 2nd turn collation & synthesis (excluding background Redis jobs)
-                    if call.name != "archive_media":
-                        try:
-                            tool_result = await tool_registry.execute_tool(call.name, args)
-                            function_response_parts.append(
-                                types.Part.from_function_response(
-                                    name=call.name,
-                                    response={"result": tool_result}
-                                )
-                            )
-                        except Exception as exec_err:
-                            logger.error(f"Error executing tool '{call.name}' for AI synthesis: {exec_err}")
-                            function_response_parts.append(
-                                types.Part.from_function_response(
-                                    name=call.name,
-                                    response={"result": {"status": "ERROR", "message": str(exec_err)}}
-                                )
-                            )
-
-                # If tools were executed for synthesis, request a 2nd turn from Gemini to collate and generate text
-                if function_response_parts:
-                    try:
-                        contents.append(response.candidates[0].content)
-                        contents.append(types.Content(role="user", parts=function_response_parts))
-
-                        second_response = self.client.models.generate_content(
-                            model=self.model_name,
-                            contents=contents,
-                            config=config
-                        )
-
-                        if hasattr(second_response, 'text') and second_response.text:
-                            reply_text = second_response.text
-                    except Exception as second_err:
-                        logger.error(f"Error during Gemini 2nd turn synthesis: {second_err}")
-
-            # Extract response text if not set by 2nd turn
-            if not reply_text:
-                try:
-                    if hasattr(response, 'text') and response.text:
-                        reply_text = response.text
-                except Exception:
-                    reply_text = ""
-
-            # Default text fallback only if no tool call and no text
-            if not reply_text and not tool_calls:
-                reply_text = "I'm on it."
-
-            # Fast link extraction check if no tool call was returned
-            if not tool_calls and any(k in user_message for k in ["youtube.com/", "youtu.be/", "vimeo.com/", "tiktok.com/"]):
-                words = user_message.split()
-                target_url = next((w for w in words if w.startswith("http://") or w.startswith("https://")), None)
-                if target_url:
-                    tool_calls.append({
-                        "name": "archive_media",
-                        "arguments": {"url": target_url, "quality": "best", "category": "General", "cloud_target": "mega", "user_id": user_id}
-                    })
+            reply_text, tool_calls = await self._execute_tools_and_synthesize(response, contents, config, user_id, user_message)
 
             return {"reply_text": reply_text, "tool_calls": tool_calls}
-
 
         except Exception as e:
             logger.exception(f"Gemini API call error: {e}")
             return await self._fallback_rule_engine(user_message, memory_summary)
+
+    def _build_system_prompt(self, user_id: int, memory_summary: str) -> str:
+        system_instruction = BLAINE_SYSTEM_PROMPT
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        time_str = now_utc.strftime("%A, %Y-%m-%d %H:%M:%S UTC")
+        system_instruction += f"\n\nCurrent System Date & Time:\n- Current UTC Time: {time_str}"
+
+        user_tz_res = memory_manager.get_user_timezone(user_id)
+        if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
+            user_tz_obj, user_tz_name = user_tz_res
+            now_local = now_utc.astimezone(user_tz_obj)
+            local_time_str = now_local.strftime("%A, %Y-%m-%d %H:%M:%S")
+            system_instruction += f"\n- User's Local Time: {local_time_str} ({user_tz_name})"
+        else:
+            system_instruction += "\n- User's Local Timezone: Not set in memory (Defaulting to UTC)."
+
+        if memory_summary and memory_summary != "No prior saved preferences.":
+            system_instruction += f"\n\nUser Profile & Memory Context (CRITICAL: Dynamically adapt your speaking tone, persona, vocabulary, conciseness, and greeting to honor these saved facts and preferences):\n{memory_summary}"
+
+        active_reminders = memory_manager.get_active_reminders(user_id)
+        if active_reminders:
+            rem_lines = []
+            for r in active_reminders:
+                line = f"- [ID {r['id']}] '{r['reminder_text']}' due at {r['trigger_at']} UTC"
+                if user_tz_res and isinstance(user_tz_res, tuple) and len(user_tz_res) == 2:
+                    try:
+                        dt_naive = datetime.datetime.fromisoformat(r['trigger_at'])
+                        dt_utc = dt_naive.replace(tzinfo=datetime.timezone.utc)
+                        dt_local = dt_utc.astimezone(user_tz_res[0])
+                        line += f" ({dt_local.strftime('%Y-%m-%d %H:%M')} {user_tz_res[1]})"
+                    except Exception:
+                        pass
+                rem_lines.append(line)
+            system_instruction += "\n\nActive Pending Reminders for User:\n" + "\n".join(rem_lines)
+
+        return system_instruction
+
+    def _collate_history(self, user_message: str, chat_history: List[Dict[str, str]]) -> List[Any]:
+        from google.genai import types
+        max_msgs = max(1, settings.MAX_CHAT_HISTORY_TURNS * 2)
+        # Exclude current user_message (last element of chat_history) to format prior history as structured turns
+        past_history = chat_history[:-1][-max_msgs:] if len(chat_history) > 1 else []
+
+        contents: List[types.Content] = []
+
+        if past_history:
+            for msg in past_history:
+                role = "user" if msg["role"] == "user" else "model"
+                if contents and contents[-1].role == role:
+                    contents[-1].parts.append(types.Part.from_text(text=msg["content"]))
+                else:
+                    contents.append(
+                        types.Content(
+                            role=role,
+                            parts=[types.Part.from_text(text=msg["content"])]
+                        )
+                    )
+
+            if contents and contents[0].role == "model":
+                contents.pop(0)
+
+        if contents and contents[-1].role == "user":
+            contents[-1].parts.append(types.Part.from_text(text=user_message))
+        else:
+            contents.append(
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=user_message)]
+                )
+            )
+        
+        return contents
+
+    async def _execute_tools_and_synthesize(
+        self,
+        response: Any,
+        contents: List[Any],
+        config: Any,
+        user_id: int,
+        user_message: str
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        from google.genai import types
+        tool_calls = []
+        reply_text = ""
+
+        if hasattr(response, 'function_calls') and response.function_calls:
+            function_response_parts = []
+            for call in response.function_calls:
+                args = dict(call.args) if hasattr(call, 'args') and call.args else {}
+                args["user_id"] = user_id
+                tool_calls.append({
+                    "name": call.name,
+                    "arguments": args
+                })
+
+                # Execute synchronous tools inline for Gemini 2nd turn collation & synthesis (excluding background Redis jobs)
+                if call.name != "archive_media":
+                    try:
+                        tool_result = await tool_registry.execute_tool(call.name, args)
+                        function_response_parts.append(
+                            types.Part.from_function_response(
+                                name=call.name,
+                                response={"result": tool_result}
+                            )
+                        )
+                    except Exception as exec_err:
+                        logger.error(f"Error executing tool '{call.name}' for AI synthesis: {exec_err}")
+                        function_response_parts.append(
+                            types.Part.from_function_response(
+                                name=call.name,
+                                response={"result": {"status": "ERROR", "message": str(exec_err)}}
+                            )
+                        )
+
+            # If tools were executed for synthesis, request a 2nd turn from Gemini to collate and generate text
+            if function_response_parts:
+                try:
+                    contents.append(response.candidates[0].content)
+                    contents.append(types.Content(role="user", parts=function_response_parts))
+
+                    second_response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=contents,
+                        config=config
+                    )
+
+                    if hasattr(second_response, 'text') and second_response.text:
+                        reply_text = second_response.text
+                except Exception as second_err:
+                    logger.error(f"Error during Gemini 2nd turn synthesis: {second_err}")
+
+        # Extract response text if not set by 2nd turn
+        if not reply_text:
+            try:
+                if hasattr(response, 'text') and response.text:
+                    reply_text = response.text
+            except Exception:
+                reply_text = ""
+
+        # Default text fallback only if no tool call and no text
+        if not reply_text and not tool_calls:
+            reply_text = "I'm on it."
+
+        # Fast link extraction check if no tool call was returned
+        if not tool_calls and any(k in user_message for k in ["youtube.com/", "youtu.be/", "vimeo.com/", "tiktok.com/"]):
+            words = user_message.split()
+            target_url = next((w for w in words if w.startswith("http://") or w.startswith("https://")), None)
+            if target_url:
+                tool_calls.append({
+                    "name": "archive_media",
+                    "arguments": {"url": target_url, "quality": "best", "category": "General", "cloud_target": "mega", "user_id": user_id}
+                })
+
+        return reply_text, tool_calls
+
 
     async def _fallback_rule_engine(self, user_message: str, memory_summary: str) -> Dict[str, Any]:
         words = user_message.split()
