@@ -34,6 +34,13 @@ variable "gemini_api_key" {
   sensitive   = true
 }
 
+variable "brave_api_key" {
+  description = "Brave Search API Key"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "rclone_config_base64" {
   description = "Base64 encoded rclone.conf file content (optional)"
   type        = string

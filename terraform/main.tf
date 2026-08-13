@@ -48,6 +48,7 @@ resource "digitalocean_droplet" "blaine_server" {
     git_repo_url              = var.git_repo_url
     telegram_bot_token        = var.telegram_bot_token
     gemini_api_key            = var.gemini_api_key
+    brave_api_key             = var.brave_api_key
     rclone_config_base64      = var.rclone_config_base64
   })
 
