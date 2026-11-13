@@ -28,6 +28,11 @@ variable "telegram_bot_token" {
   sensitive   = true
 }
 
+variable "telegram_allowed_users" {
+  description = "Comma-separated numeric Telegram user IDs allowed to use the bot (empty = nobody)"
+  type        = string
+}
+
 variable "gemini_api_key" {
   description = "Google Gemini API Key"
   type        = string

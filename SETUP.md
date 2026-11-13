@@ -12,6 +12,8 @@ Before starting, gather the following credentials:
    - Open Telegram and search for `@BotFather`.
    - Send `/newbot`, name your bot (e.g. `BlaineAssistantBot`), and copy the API Token provided.
 
+   - Find your numeric Telegram user ID (e.g. message `@userinfobot`). Blaine ignores everyone not listed in `TELEGRAM_ALLOWED_USERS`; ignored IDs are logged by the bot, so you can also read yours from `docker compose logs bot`.
+
 2. **Google Gemini API Key**:
    - Visit [Google AI Studio](https://aistudio.google.com/).
    - Click **Get API key** and copy your API key.
@@ -55,6 +57,7 @@ cp .env.example .env
 Edit `.env` and fill in your keys:
 ```ini
 TELEGRAM_BOT_TOKEN="your_telegram_bot_token_here"
+TELEGRAM_ALLOWED_USERS="123456789"  # Required: your numeric Telegram user ID (comma-separate several)
 GEMINI_API_KEY="your_gemini_api_key_here"
 ```
 
@@ -84,6 +87,7 @@ Edit `terraform.tfvars`:
 do_token           = "dop_v1_your_digitalocean_token_here"
 git_repo_url       = "https://github.com/your_username/blaine.git"
 telegram_bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+telegram_allowed_users = "123456789" # Required: only these Telegram user IDs can talk to Blaine
 gemini_api_key     = "AIzaSyYourGeminiApiKeyHere"
 
 # Optional: Set to true if cloning a private fork over SSH (git@github.com:username/blaine.git)

@@ -1,6 +1,7 @@
 do_token           = "dop_v1_your_digitalocean_token_here"
 git_repo_url       = "https://github.com/morgang5522/blaine.git"
 telegram_bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+telegram_allowed_users = "123456789" # Your numeric Telegram user ID(s), comma-separated
 gemini_api_key     = "AIzaSyYourGeminiApiKeyHere"
 brave_api_key      = "BSAYourBraveApiKeyHere"
 

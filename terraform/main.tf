@@ -47,6 +47,7 @@ resource "digitalocean_droplet" "blaine_server" {
     github_deploy_public_key  = try(tls_private_key.github_deploy_key[0].public_key_openssh, "")
     git_repo_url              = var.git_repo_url
     telegram_bot_token        = var.telegram_bot_token
+    telegram_allowed_users    = var.telegram_allowed_users
     gemini_api_key            = var.gemini_api_key
     brave_api_key             = var.brave_api_key
     rclone_config_base64      = var.rclone_config_base64

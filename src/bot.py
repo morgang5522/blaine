@@ -11,6 +11,8 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
+    TypeHandler,
+    ApplicationHandlerStop,
     filters,
 )
 
@@ -45,6 +47,23 @@ def format_telegram_html(text: str) -> str:
     text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
     
     return text.strip()
+
+
+def is_user_allowed(user_id: int, allowed_users) -> bool:
+    """Fail closed: an empty whitelist allows nobody."""
+    return bool(allowed_users) and user_id in allowed_users
+
+
+async def enforce_allowed_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Runs before every other handler; silently drops updates from users not in TELEGRAM_ALLOWED_USERS."""
+    user = update.effective_user
+    if user is not None and is_user_allowed(user.id, settings.TELEGRAM_ALLOWED_USERS):
+        return
+    logger.warning(
+        "Ignoring update from unauthorized user id=%s username=%s",
+        getattr(user, "id", None), getattr(user, "username", None),
+    )
+    raise ApplicationHandlerStop
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -203,8 +222,17 @@ def main():
         logger.error("TELEGRAM_BOT_TOKEN environment variable is missing!")
         return
 
+    if not settings.TELEGRAM_ALLOWED_USERS:
+        logger.error(
+            "TELEGRAM_ALLOWED_USERS is empty: the bot will ignore ALL messages. "
+            "Set it to a comma-separated list of numeric Telegram user IDs "
+            "(unauthorized IDs are logged when they message the bot)."
+        )
+
     app = ApplicationBuilder().token(settings.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
+    # Group -1 runs before the default group 0, so the whitelist gates every handler below.
+    app.add_handler(TypeHandler(Update, enforce_allowed_users), group=-1)
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("forget", forget_command))
